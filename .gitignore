@@ -3,4 +3,4 @@
 # in .gitignore
 *.pth
 *.x5
-.terraform/
+mlops-terraform-infrastructure/.terraform/
