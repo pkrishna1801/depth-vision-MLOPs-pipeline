@@ -1,0 +1,135 @@
+version: 0.2
+
+env:
+  variables:
+    AWS_REGION: "us-east-1"
+    REACT_APP_YOLO_API: "http://mlops-alb-1101162350.us-east-1.elb.amazonaws.com:5000"
+    REACT_APP_DEPTH_API: "http://mlops-alb-1101162350.us-east-1.elb.amazonaws.com:5050"
+    REACT_APP_ALB_DNS: "http://mlops-alb-1101162350.us-east-1.elb.amazonaws.com"
+
+phases:
+  pre_build:
+    commands:
+      - echo "Logging in to Docker Hub to avoid rate limiting..."
+      - docker login -u $DOCKERHUB_USERNAME -p $DOCKERHUB_PASSWORD || echo "Docker Hub login failed, continuing..."
+      - echo "Logging in to ECR..."
+      - aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+      - echo "Setting up build variables..."
+      - COMMIT_HASH=$(echo $CODEBUILD_RESOLVED_SOURCE_VERSION | cut -c 1-7)
+      - IMAGE_TAG=${COMMIT_HASH:-latest}
+      - echo "Build ID - $IMAGE_TAG"
+
+  build:
+    commands:
+      - echo "=== Phase 1 - Building and Testing Development Images ==="
+
+      - echo "Building development images..."
+      - docker build --target development -t frontend-dev ./frontend/
+      - docker build --target development -t yolo-backend-dev ./yolo-backend/
+      - docker build --target development -t depth-backend-dev ./depth-backend/
+
+      - echo "=== Running Development Containers for Testing ==="
+      
+      - echo "Starting YOLO backend development container..."
+      - docker run -d --name yolo-dev-test -p 5000:5000 yolo-backend-dev
+      
+      - echo "Starting Depth backend development container..."
+      - docker run -d --name depth-dev-test -p 5050:5050 depth-backend-dev
+      
+      - echo "Starting Frontend development container..."
+      - docker run -d --name frontend-dev-test -p 3000:3000 frontend-dev
+     
+      - echo "Waiting for services to start and models to load..."
+      - sleep 120
+      
+      - echo "=== Running Unit Tests on Development Containers ==="
+      
+      - echo "Testing YOLO backend health..."
+      - curl -f http://localhost:5000/health || exit 1
+      - echo "YOLO backend health check passed"
+      
+      - echo "Testing YOLO model info..."
+      - curl -f http://localhost:5000/model-info || exit 1
+      - echo "YOLO model info check passed"
+      
+      - echo "Testing Depth backend health..."
+      - curl -f http://localhost:5050/health || exit 1
+      - echo "Depth backend health check passed"
+      
+      - echo "Testing Depth model info..."
+      - curl -f http://localhost:5050/model-info || exit 1
+      - echo "Depth model info check passed"
+      
+      - echo "Testing Frontend..."
+      - curl -f http://localhost:3000/ || exit 1
+      - echo "Frontend health check passed"
+      
+      - echo "=== All Unit Tests Passed ==="
+      
+      - echo "Cleaning up development containers..."
+      - docker stop yolo-dev-test depth-dev-test frontend-dev-test || true
+      - docker rm yolo-dev-test depth-dev-test frontend-dev-test || true
+      - echo "=== Phase 2 - Building Production Images ==="
+      
+      - echo "Building Frontend production image..."
+      - docker build --target production --build-arg REACT_APP_YOLO_API=$REACT_APP_YOLO_API --build-arg REACT_APP_DEPTH_API=$REACT_APP_DEPTH_API -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/frontend:prod -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/frontend:$IMAGE_TAG ./frontend/
+      - echo "Frontend production build completed successfully"
+      
+      - echo "Building YOLO Backend production image..."
+      - docker build --target production -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/yolo-backend:prod -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/yolo-backend:$IMAGE_TAG ./yolo-backend/
+      - echo "YOLO Backend production build completed successfully"
+      
+      - echo "Building Depth Backend production image..."
+      - docker build --target production -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/depth-backend:prod -t $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/depth-backend:$IMAGE_TAG ./depth-backend/
+      - echo "Depth Backend production build completed successfully"
+      
+      - echo "=== Verifying Production Images ==="
+      - docker images | grep mlops
+      
+      - echo "=== Running Production Image Smoke Tests ==="
+      - echo "Testing Frontend production image..."
+      - docker run --rm --entrypoint="" $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/frontend:prod echo "Frontend production image test passed"
+      
+      - echo "Testing YOLO Backend production image..."
+      - docker run --rm --entrypoint="" $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/yolo-backend:prod python --version
+      - echo "YOLO Backend production image test passed"
+      
+      - echo "Testing Depth Backend production image..."
+      - docker run --rm --entrypoint="" $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/depth-backend:prod python --version
+      - echo "Depth Backend production image test passed"
+
+  post_build:
+    commands:
+      - echo "=== Pushing Production Images to ECR ==="
+      
+      - echo "Pushing Frontend images..."
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/frontend:prod
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/frontend:$IMAGE_TAG
+      - echo "Frontend images pushed successfully"
+      
+      - echo "Pushing YOLO Backend images..."
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/yolo-backend:prod
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/yolo-backend:$IMAGE_TAG
+      - echo "YOLO Backend images pushed successfully"
+      
+      - echo "Pushing Depth Backend images..."
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/depth-backend:prod
+      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/depth-backend:$IMAGE_TAG
+      - echo "Depth Backend images pushed successfully"
+      
+      - echo "=== CI/CD Pipeline Complete ==="
+      - echo "Development containers tested successfully"
+      - echo "Unit tests passed on Ubuntu instance"
+      - echo "Production images built and deployed to ECR"
+      
+      - echo "Production Images Available:"
+      - echo "Frontend - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/frontend:prod"
+      - echo "YOLO - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/yolo-backend:prod"
+      - echo "Depth - $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/mlops/depth-backend:prod"
+      
+      - echo "Also tagged with commit - $IMAGE_TAG"
+
+artifacts:
+  files:
+    - '**/*'
+  name: mlops-build-artifacts

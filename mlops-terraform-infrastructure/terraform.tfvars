@@ -1,0 +1,13 @@
+ecs_cluster         = "mlops-tf-cluster-v2"
+ecs_key_pair_name   = "key-srishti-rai-2025-tf"
+region              = "us-east-1"
+availability_zone   = "us-east-1a"
+test_vpc            = "mlops_vpc"
+test_network_cidr   = "10.0.0.0/16"
+test_public_01_cidr = "10.0.1.0/24"
+test_public_02_cidr = "10.0.2.0/24"
+max_instance_size   = 4
+min_instance_size   = 2
+desired_capacity    = 2
+target_capacity     = 90
+aws_account_id      = "058264233676"

@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  frontend:
+    image: 058264233676.dkr.ecr.us-east-1.amazonaws.com/mlops/frontend:prod
+    platform: linux/amd64
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_YOLO_API_URL=http://yolo-backend:5000
+      - REACT_APP_DEPTH_API_URL=http://depth-backend:5050
+    depends_on:
+      - yolo-backend
+      - depth-backend
+    networks:
+      - mlops-network
+
+  yolo-backend:
+    image: 058264233676.dkr.ecr.us-east-1.amazonaws.com/mlops/yolo-backend:prod
+    platform: linux/amd64
+    ports:
+      - "5000:5000"
+    environment:
+      - FLASK_ENV=production
+    networks:
+      - mlops-network
+
+  depth-backend:
+    image: 058264233676.dkr.ecr.us-east-1.amazonaws.com/mlops/depth-backend:prod
+    platform: linux/amd64
+    ports:
+      - "5050:5050"
+    environment:
+      - FLASK_ENV=production
+    networks:
+      - mlops-network
+
+networks:
+  mlops-network:
+    driver: bridge
