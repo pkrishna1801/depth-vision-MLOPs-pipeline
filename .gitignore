@@ -3,3 +3,4 @@
 # in .gitignore
 *.pth
 *.x5
+.terraform/
